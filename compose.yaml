@@ -1,0 +1,37 @@
+name: samal
+services:
+  demo:
+    build: .
+    image: samal:local
+    profiles: [demo]
+    init: true
+    ports:
+      - "127.0.0.1:${SAMAL_DEMO_PORT:-8081}:8080"
+    volumes:
+      - samal-demo-data:/app/runtime
+    entrypoint: [/opt/venv/bin/python, /app/scripts/demo.py, --serve]
+    stop_grace_period: 30s
+  app:
+    build: .
+    image: samal:local
+    init: true
+    ports:
+      - "127.0.0.1:${SAMAL_PORT:-8080}:8080"
+    volumes:
+      - samal-data:/app/runtime
+    restart: unless-stopped
+    stop_grace_period: 30s
+  forecast:
+    image: samal:local
+    user: "${SAMAL_UID:-1000}:${SAMAL_GID:-1000}"
+    profiles: [tools]
+    depends_on:
+      app:
+        condition: service_healthy
+    entrypoint: ["/opt/venv/bin/python", "/app/scripts/forecast.py", "--url", "http://app:8080", "--output", "/exports"]
+    command: ["--mode", "live", "--horizon", "48"]
+    volumes:
+      - ./exports:/exports
+volumes:
+  samal-demo-data:
+  samal-data:
