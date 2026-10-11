@@ -11,7 +11,7 @@ import sys
 
 def private_path(name):
     p = PurePosixPath(name.lower())
-    forbidden = {"runtime", ".cache", ".venv", "node_modules", "exports", "raw", "attachments", "__pycache__", ".pytest_cache"}
+    forbidden = {"runtime", ".cache", ".venv", "node_modules", "exports", "raw", "attachments", "__pycache__", ".pytest_cache", "test-results", "playwright-report"}
     return (bool(forbidden.intersection(p.parts)) or
             (p.name.startswith(".env") and p.name != ".env.example") or
             p.suffix.lower() in {".cbm", ".db", ".sqlite", ".sqlite3", ".zip", ".docx", ".exe", ".pem", ".key", ".p12", ".pfx", ".7z", ".tar", ".gz"} or

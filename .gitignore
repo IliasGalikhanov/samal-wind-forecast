@@ -31,3 +31,5 @@ attachments/
 *.7z
 *.tar
 *.gz
+frontend/playwright-report/
+frontend/test-results/
