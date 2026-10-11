@@ -12,6 +12,7 @@ jobs:
       - name: Keep private data out of the repository
         run: |
           python scripts/check_publication.py --history
+          python scripts/check_docs.py
           python -m unittest discover -s scripts -p 'test_*.py'
       - uses: actions/setup-go@v5
         with:
@@ -36,12 +37,36 @@ jobs:
           python -m pip install -r ml/requirements.lock.txt
           python -m pytest ml -q
       - name: Full synthetic training and model reuse (offline)
-        run: python scripts/demo.py --verify
+        run: |
+          python scripts/demo.py --verify --output runtime/portfolio-demo
+          python scripts/portfolio_report.py --output runtime/ci-report
       - name: TypeScript and frontend build
         working-directory: frontend
         run: |
           npm ci
+          npm run format:check
           npm run build
+      - name: Browser workflows with isolated synthetic data
+        working-directory: frontend
+        run: |
+          npx playwright install --with-deps chromium
+          npm run test:e2e
+      - name: Browser failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-diagnostics
+          path: |
+            frontend/playwright-report/
+            frontend/test-results/
+          retention-days: 7
+      - name: Synthetic audit report
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: synthetic-audit
+          path: runtime/ci-report/
+          retention-days: 14
   container:
     runs-on: ubuntu-latest
     steps:
