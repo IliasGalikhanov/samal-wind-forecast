@@ -23,7 +23,7 @@
 ./start.ps1
 ```
 
-Путь Python можно опустить, если он доступен через PATH или установлен в окружении Codex. Библиотеки устанавливаются в `.venv`, Go-кеш — в `.cache`, зависимости React — в `frontend/node_modules`. Версии зафиксированы в `go.sum`, `frontend/package-lock.json` и `ml/requirements.lock.txt`.
+Путь Python можно опустить, если он доступен через PATH. Библиотеки устанавливаются в `.venv`, Go-кеш — в `.cache`, зависимости React — в `frontend/node_modules`. Версии зафиксированы в `go.sum`, `frontend/package-lock.json` и `ml/requirements.lock.txt`.
 
 Для Linux/macOS создайте `.venv`, установите `ml/requirements.lock.txt`, выполните `npm ci && npm run build` в `frontend`, затем `go run ./cmd/server -seed data/raw`. Go автоматически выбирает `.venv/bin/python`. Проверка на этом устройстве выполнена под Windows; другие ОС отдельно не проверялись.
 
