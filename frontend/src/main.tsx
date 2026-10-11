@@ -4,4 +4,10 @@ import App from './Application'
 import { Preferences } from './i18n'
 import './design.css'
 
-ReactDOM.createRoot(document.getElementById('root')!).render(<React.StrictMode><Preferences><App/></Preferences></React.StrictMode>)
+ReactDOM.createRoot(document.getElementById('root')!).render(
+  <React.StrictMode>
+    <Preferences>
+      <App />
+    </Preferences>
+  </React.StrictMode>,
+)

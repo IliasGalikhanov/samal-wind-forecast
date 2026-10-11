@@ -1,88 +1,505 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
-import { Wind, LayoutDashboard, ChartNoAxesCombined, Upload, Activity, Workflow, GitCompareArrows, Settings2, Bell, ChevronRight, Download, Play, ArrowUpRight, Database, Clock3, Info, X, Check, LoaderCircle, Menu, Zap, Thermometer, CircleHelp, Sun, Moon } from 'lucide-react'
-import { api, post } from './types'
-import type { Hour, Imported, Overview, Run, Turbine } from './types'
-import { useI18n, useStored, readLocal, writeLocal } from './i18n'
+import {
+  Wind,
+  Upload,
+  Bell,
+  ChevronRight,
+  Download,
+  Play,
+  ArrowUpRight,
+  Database,
+  Info,
+  X,
+  Check,
+  LoaderCircle,
+  Menu,
+  Zap,
+  CircleHelp,
+  Sun,
+  Moon,
+} from 'lucide-react'
+import { useI18n } from './i18n'
 import type { Key } from './i18n'
-import { Card, Empty, ErrorNotice, Filters, Loading, Modal, Pager, Pill, Stat, TurbineTabs, useList } from './ui'
-import { PowerChart, Quality, SeriesChart } from './charts'
-import { Compare, ImportHistory, ImportPanel, RunHistory, Settings, retryRun } from './panels'
-import type { Notify } from './panels'
+import { Card, Empty, ErrorNotice, Loading, Modal, Pill } from './ui'
+import { Quality } from './charts'
+import { Compare, ImportHistory, ImportPanel, RunHistory, Settings } from './panels'
 import { StationPanel } from './station'
-import { WeatherSettingsPanel, WeatherSummary } from './weather'
+import { WeatherSettingsPanel } from './weather'
 
-type View='overview'|'forecast'|'import'|'quality'|'agent'|'compare'|'settings'|'notifications'
-const NAV:{id:View;icon:typeof Wind}[]=[{id:'overview',icon:LayoutDashboard},{id:'forecast',icon:ChartNoAxesCombined},{id:'import',icon:Upload},{id:'quality',icon:Activity},{id:'agent',icon:Workflow},{id:'compare',icon:GitCompareArrows},{id:'settings',icon:Settings2}]
-const views=[...NAV.map(n=>n.id),'notifications']
-type UIState={view:View;turbine:number;days:number;horizon:number;selectedID:string}
-type Notification={id:string;key:Key;values?:Record<string,string|number>;runID?:string;detail?:string;at:string;read:boolean}
-
-export default function App(){
- const {t,prefs,setPrefs,num,pct,date,created,model,event}=useI18n()
- const [initial]=useState<UIState>(()=>{const saved=readLocal<Partial<UIState>>('samal.workspace',{});return {view:prefs.remember&&views.includes(saved.view||'')?saved.view!:'overview',turbine:prefs.remember&&Number.isInteger(saved.turbine)&&saved.turbine!>0?saved.turbine!:0,days:prefs.remember&&[7,30,90].includes(saved.days||0)?saved.days!:7,horizon:prefs.remember&&[24,48].includes(saved.horizon||0)?saved.horizon!:prefs.defaultHorizon,selectedID:prefs.remember&&typeof saved.selectedID==='string'?saved.selectedID:''}})
- const [view,setView]=useState<View>(initial.view),[turbine,setTurbine]=useState(initial.turbine),[days,setDays]=useState(initial.days),[horizon,setHorizon]=useState(initial.horizon),[selectedID,setSelectedID]=useState(initial.selectedID)
- const [data,setData]=useState<Overview|null>(null),[imports,setImports]=useState<Imported[]>([]),[history,setHistory]=useState<Hour[]>([]),[historyLoading,setHistoryLoading]=useState(false),[selected,setSelected]=useState<Run|null>(null),[forecastMode,setForecastMode]=useState<'live'|'dataset'>('live'),[origin,setOrigin]=useState(''),[busy,setBusy]=useState(false),[error,setError]=useState(''),[cancelling,setCancelling]=useState(''),[modal,setModal]=useState<'help'|'welcome'|null>(null),[mobile,setMobile]=useState(false),[forecastPage,setForecastPage]=useState(1),[revision,setRevision]=useState(0)
- const [onboarded,setOnboarded]=useStored('samal.onboarded',false),[notifications,setNotifications]=useStored<Notification[]>('samal.notifications',[]),[toast,setToast]=useState<Notification|null>(null)
- const timer=useRef<ReturnType<typeof setTimeout>|null>(null),prefsRef=useRef(prefs),known=useRef<Record<string,string>>(readLocal('samal.run-statuses',{})),priorDefault=useRef(prefs.defaultHorizon),sidebar=useRef<HTMLElement>(null),menuButton=useRef<HTMLButtonElement>(null)
- prefsRef.current=prefs
- const notify=useCallback<Notify>((key,values,runID,detail,id)=>{const n:Notification={id:id||crypto.randomUUID(),key,values,runID,detail,at:new Date().toISOString(),read:false};setNotifications(old=>old.some(x=>x.id===n.id)?old:[n,...old].slice(0,200));if(prefsRef.current.toasts){setToast(n);if(timer.current)clearTimeout(timer.current);timer.current=setTimeout(()=>setToast(null),6500)}},[setNotifications])
- useEffect(()=>{if(data&&!data.turbines.some(x=>x.id===turbine))setTurbine(data.turbines[0]?.id||0)},[data,turbine])
- const refresh=useCallback(async()=>{const [overview,uploads]=await Promise.all([api<Overview>('/overview'),api<Imported[]>('/imports')]);setData(overview);setImports(uploads);return overview},[])
- useEffect(()=>{void refresh().catch(e=>setError(e.message));return()=>{if(timer.current)clearTimeout(timer.current)}},[refresh])
- useEffect(()=>{if(!onboarded)setModal('welcome')},[onboarded])
- useEffect(()=>{if(prefs.remember)writeLocal('samal.workspace',{view,turbine,days,horizon,selectedID});else writeLocal('samal.workspace',{})},[view,turbine,days,horizon,selectedID,prefs.remember])
- useEffect(()=>{if(priorDefault.current!==prefs.defaultHorizon){setHorizon(prefs.defaultHorizon);priorDefault.current=prefs.defaultHorizon}},[prefs.defaultHorizon])
- useEffect(()=>{document.title=`${t(view)} · SAMAL`},[view,prefs.language])
- useEffect(()=>{setForecastPage(1)},[horizon,selectedID,prefs.pageSize,data?.latest_run?.id])
- const running=data?.runs.find(r=>r.status==='running')
- useEffect(()=>{let disposed=false,inFlight=false;const poll=setInterval(()=>{if(inFlight)return;inFlight=true;void refresh().catch(e=>{if(!disposed)setError(e.message)}).finally(()=>{inFlight=false})},running?2000:15000);return()=>{disposed=true;clearInterval(poll)}},[running?.id,refresh])
- useEffect(()=>{if(!data)return;for(const r of data.runs){const previous=known.current[r.id];if(previous&&previous!==r.status&&r.status!=='running'){notify(r.status==='completed'?'runReady':r.status==='cancelled'?'cancelledStage':'runFailed',undefined,r.id,r.error||undefined,`run-${r.id}-${r.status}`);if(r.status==='completed')setSelectedID('');if(cancelling===r.id)setCancelling('')}known.current[r.id]=r.status}writeLocal('samal.run-statuses',known.current)},[data,notify,cancelling])
- useEffect(()=>{if(!data?.turbines.some(x=>x.id===turbine)){setHistory([]);setHistoryLoading(false);return}const controller=new AbortController();setHistory([]);setHistoryLoading(true);void api<Hour[]>(`/history?turbine=${turbine}&days=${days}`,{signal:controller.signal}).then(setHistory).catch(e=>{if(!controller.signal.aborted)setError(e.message)}).finally(()=>{if(!controller.signal.aborted)setHistoryLoading(false)});return()=>controller.abort()},[turbine,days,revision,data?.turbines.map(t=>`${t.rows}:${t.last}:${t.power}`).join(',')])
- useEffect(()=>{setSelected(null);if(!selectedID)return;const controller=new AbortController();void api<Run>(`/runs/${selectedID}`,{signal:controller.signal}).then(setSelected).catch(e=>{if(!controller.signal.aborted){setError(e.message);setSelectedID('')}});return()=>controller.abort()},[selectedID,revision])
- useEffect(()=>{if(!mobile)return;sidebar.current?.querySelector<HTMLElement>('a,button')?.focus();const handle=(e:KeyboardEvent)=>{if(e.key==='Escape')setMobile(false);if(e.key==='Tab'){const nodes=sidebar.current?.querySelectorAll<HTMLElement>('a,button');if(!nodes?.length)return;const first=nodes[0],last=nodes[nodes.length-1];if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus()}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus()}}};document.addEventListener('keydown',handle);return()=>{document.removeEventListener('keydown',handle);menuButton.current?.focus()}},[mobile])
- const go=(next:View)=>{setView(next);setMobile(false);setError('');window.scrollTo({top:0,behavior:'auto'})}
- const closeModal=()=>{if(modal==='welcome')setOnboarded(true);setModal(null)}
- const current=selectedID?selected:data?.latest_run,result=current?.result,detail=data?.turbines.find(t=>t.id===turbine),count=data?.turbines.reduce((s,t)=>s+t.rows,0)||0,missing=data?.turbines.reduce((s,t)=>s+t.missing,0)||0,coverage=count?count/(count+missing):0
- const last=data?.turbines.map(t=>t.last).filter(Boolean).sort().at(-1)||'',first=data?.turbines.map(t=>t.first).filter(Boolean).sort()[0]||'',forecast=result?.forecasts.filter(f=>f.turbine_id===turbine).slice(0,horizon)||[],unread=notifications.filter(n=>!n.read).length
- const age=last?Math.max(0,Math.floor((Date.now()-Date.parse(last.replace(' ','T')+'Z'))/86400000)):0
- async function runForecast(retry?:Run,replayDays=1){setBusy(true);setError('');try{const r=retry?await retryRun(retry):await api<Run>('/runs',post({horizon,mode:view==='forecast'?forecastMode:'live',origin:view==='forecast'&&forecastMode==='dataset'?origin||undefined:undefined,replay_days:replayDays}));known.current[r.id]='running';setSelectedID('');await refresh();notify('started',undefined,r.id)}catch(e){setError((e as Error).message);notify('errorTitle',undefined,undefined,(e as Error).message)}finally{setBusy(false)}}
- async function cancelRun(r:Run){setCancelling(r.id);try{await api(`/runs/${r.id}/cancel`,post({}));await refresh()}catch(e){setError((e as Error).message);setCancelling('')}}
- function openRun(r:Run){if(r.status==='failed'||r.status==='cancelled'){void runForecast(r);return}setSelectedID(r.id);go('forecast')}
- const runButton=<button className="button primary" disabled={busy||!!running||!count} onClick={()=>void runForecast()}>{busy||running?<LoaderCircle size={17} className="spin"/>:<Play size={16}/>} {t(running?'calculating':'calculate')}</button>
- const download=current&&<a className="button secondary" href={`/api/runs/${current.id}/export`}><Download size={16}/>{t('csv')}</a>
- return <div className="app-shell"><a className="skip-link" href="#main">{t('skip')}</a>{mobile&&<div className="nav-scrim" onClick={()=>setMobile(false)}/>}
- <aside ref={sidebar} className={`sidebar ${mobile?'open':''}`} aria-label={t('workspace')}><a className="brand" href="#main" onClick={()=>go('overview')}><span className="brand-mark"><Wind size={27}/></span><span>SAMAL<small>{t('windEnergy')}</small></span></a><div className="workspace"><span className="workspace-icon"><Zap size={18}/></span><div>{t('station')}<small>{t('turbineCount',{n:data?.turbines.length||0})}</small></div></div><p className="nav-label">{t('workspace')}</p><nav>{NAV.map(n=><button key={n.id} className={`nav-item ${view===n.id?'active':''}`} aria-current={view===n.id?'page':undefined} onClick={()=>go(n.id)}><n.icon size={19}/><span>{t(n.id)}</span>{n.id==='agent'&&running&&<span className="nav-progress"/>}</button>)}</nav><div className="sidebar-bottom"><div className="local-note"><Database size={17}/><span>{t('localData')}</span></div><button className="nav-item" onClick={()=>{setMobile(false);setModal('help')}}><CircleHelp size={18}/>{t('help')}</button><div className="sidebar-footer"><span className="avatar">S</span><b>SAMAL <small>WORKSPACE</small></b><span className="version">v2.0</span></div></div></aside>
- <div className="main-shell" inert={mobile||undefined}><header className="topbar"><div className="breadcrumbs"><button ref={menuButton} className="icon-button mobile-menu" aria-label={t('menu')} aria-expanded={mobile} onClick={()=>setMobile(true)}><Menu size={21}/></button><span>SAMAL</span><ChevronRight size={14}/><b>{t(view)}</b></div><div className="topbar-right"><span className="local-badge"><i/>{t('local')}</span><select className="language-select" aria-label={t('language')} value={prefs.language} onChange={e=>setPrefs({...prefs,language:e.target.value as typeof prefs.language})}><option value="kk">ҚАЗ</option><option value="ru">РУС</option><option value="en">ENG</option></select><button className="icon-button" aria-label={t('theme')} title={t('theme')} onClick={()=>setPrefs({...prefs,theme:document.documentElement.dataset.theme==='dark'?'light':'dark'})}>{prefs.theme==='dark'?<Sun size={19}/>:<Moon size={19}/>}</button><button className="icon-button notification-button" aria-label={`${t('notifications')}${unread?`: ${unread}`:''}`} onClick={()=>go('notifications')}><Bell size={19}/>{unread>0&&<span>{unread>99?'99+':unread}</span>}</button></div></header>
- <main id="main" tabIndex={-1}>{(data?.demo||result?.data_source==='synthetic')&&<div className="notice warning" role="status"><Info size={19}/>{t('demoBanner')}</div>}<div className="page-heading"><div><div className="eyebrow">SAMAL / {t('windEnergy')}</div><h1>{t(view)}</h1><p>{t(`${view}Desc` as Key)}</p></div><div className="heading-actions">{view==='overview'?<><button className="button secondary" onClick={()=>go('import')}><Upload size={16}/>{t('upload')}</button>{runButton}</>:view==='forecast'?<>{download}{runButton}</>:view==='import'?<a className="button secondary" href="/api/template"><Download size={16}/>{t('template')}</a>:view==='agent'?runButton:null}</div></div>
- <ErrorNotice message={error} onClose={()=>setError('')} retry={()=>{setRevision(v=>v+1);void refresh().then(()=>setError('')).catch(e=>setError(e.message))}}/>
- {running&&<div className="running-banner" role="status"><LoaderCircle size={23} className="spin"/><div><b>{t('calculating')}</b><span>{event(running.step)}</span></div><button className="text-button" onClick={()=>go('agent')}>{t('agent')}<ArrowUpRight size={15}/></button><button className="button secondary compact" disabled={!!cancelling} onClick={()=>void cancelRun(running)}>{t(cancelling?'cancelling':'cancel')}</button></div>}
- {!data?<Loading/>:<>
- {view==='overview'&&<>{!count&&!data.demo&&<Card title={t('setupWelcome')} sub={t('setupWelcomeHint')}><div className="settings-body"><button className="button primary" onClick={()=>go('settings')}>{t('stationSetup')}</button></div></Card>}<div className="data-age"><div><span className={`status-dot ${age>2?'stale':''}`}/><b>{t(age>2?'stale':'fresh')}</b><span>{t('lastReading')}: {date(last,true)}</span></div><span>{t('age',{n:num(age)})}</span><p>{t('ageNote')}</p></div>
- <div className="stats-grid"><Stat label={t('turbines')} value={`${data.turbines.filter(x=>x.rows).length} / ${data.turbines.length}`} note={t('perTurbine')}/><Stat label={t('measurements')} value={num(count)} note={`${date(first)} — ${date(last)}`} tone="teal"/><Stat label={t('completeness')} value={pct(coverage)} note={t('missing',{n:num(missing)})}/><Stat label={t('testMAE')} value={result?.backtest.selected.mae!=null?`${num(result.backtest.selected.mae*100,1)} ${t('pp')}`:'—'} note={result?`${date(result.backtest.start)} — ${date(result.backtest.end_exclusive)}`:t('afterRun')} tone="orange"/></div>
- <div className="dashboard-grid"><Card title={t('powerTime')} sub={t(forecast.length?'last24':'historyGaps')} action={<div className="segments">{[24,48].map(n=><button key={n} aria-pressed={horizon===n} className={horizon===n?'selected':''} onClick={()=>setHorizon(n)}>{t('hours',{n})}</button>)}</div>}><div className="chart-tools"><TurbineTabs turbines={data.turbines} value={turbine} onChange={setTurbine}/><div className="legend"><span className="blue-dot">{t('actual')}</span><span className="teal-dot">{t('predicted')}</span></div></div>{historyLoading?<Loading/>:<PowerChart history={history} forecast={forecast}/>}<div className="chart-footer"><Clock3 size={14}/><span>{t('lastReading')}: {date(detail?.last||'',true)}</span><button className="text-button" onClick={()=>go('forecast')}>{t('details')}<ArrowUpRight size={15}/></button></div></Card>
- <aside className="forecast-summary"><div className="summary-top"><Wind size={30}/><Pill tone="light">{t(forecast.length?'forecastReady':'history')}</Pill></div><h2>{t('nextHours',{n:forecast.length||horizon})}</h2><p>{forecast.length?`${date(forecast[0].time)} — ${date(forecast.at(-1)!.time)}`:t('firstRun')}</p><div className="summary-value">{forecast.length?pct(forecast.reduce((s,f)=>s+f.prediction,0)/forecast.length):'—'}<span>{t('meanPower')}</span></div><div className="summary-detail"><span>{t('turbineLabel')}</span><b>{detail?.name||'—'}</b></div><div className="summary-detail"><span>{t('model')}</span><b>{forecast.length?model(forecast[0].model):'—'}</b></div><button className="button summary-button" onClick={()=>go('forecast')}>{t('forecast')}<ArrowUpRight size={17}/></button><div className="summary-note"><Info size={16}/><span>{t(data?.demo?'syntheticSource':(result?.weather||(!result&&data?.weather_settings.enabled))?'weatherForecastNote':'weatherNote')}</span></div></aside></div>
- <div className="section-heading"><h2>{t('turbines')}</h2><button className="text-button" onClick={()=>go('import')}>{t('import')}<ArrowUpRight size={15}/></button></div><div className="turbine-grid">{data.turbines.map(x=><TurbineCard key={x.id} turbine={x} onOpen={()=>{setTurbine(x.id);go('forecast')}}/>)}</div><div className="subtle-note"><Info size={16}/>{t('unitsNote')}</div>
- <Card title={t('history')} sub={t('historyGaps')} action={<select value={days} onChange={e=>setDays(Number(e.target.value))} aria-label={t('period')}>{[7,30,90].map(n=><option key={n} value={n}>{t('days',{n})}</option>)}</select>}>{historyLoading?<Loading/>:<SeriesChart points={history.map(h=>({time:h.time,actual:h.power}))} area/>}</Card></>}
- {result&&['overview','forecast'].includes(view)&&result.forecasts.every(f=>!f.model.startsWith('catboost'))&&<div className="notice warning"><Info size={17}/>{t('baselineForecast',{model:[...new Set(result.forecasts.map(f=>model(f.model)))].join(' / ')})}</div>}
- {view==='forecast'&&<><Card><div className="forecast-controls"><label>{t('forecastMode')}<select value={forecastMode} onChange={e=>setForecastMode(e.target.value as 'live'|'dataset')}><option value="live">{t('modeLive')}</option><option value="dataset">{t('modeHistorical')}</option></select><small>{t(forecastMode==='live'?'liveModeHint':'historicalModeHint')}</small></label>{forecastMode==='dataset'&&<label>{t('origin')}<input type="datetime-local" step={3600} value={origin} onChange={e=>setOrigin(e.target.value)}/><small>{t('historicalModeHint')}</small></label>}<fieldset><legend>{t('horizon')}</legend><div className="segments">{[24,48].map(n=><button key={n} className={horizon===n?'selected':''} aria-pressed={horizon===n} onClick={()=>setHorizon(n)}>{t('hours',{n})}</button>)}</div></fieldset><p>{t(data.demo?'syntheticSource':data.weather_settings?.enabled?'weatherForecastNote':'seasonalHint')}</p>{forecastMode==='dataset'&&data.weather_settings?.enabled&&<button className="button secondary" disabled={!!running||busy} onClick={()=>void runForecast(undefined,28)}>{t('replayRun')}</button>}</div></Card>
- 
- {selectedID&&<div className="notice neutral"><span>{selected?t('version',{date:created(selected.created)}):t('loading')}</span><button className="text-button" onClick={()=>setSelectedID('')}>{t('latest')}</button></div>}
- {result?<><Card title={t('hourly')} sub={`${t(result.mode==='live'?'modeLive':'modeHistorical')} · ${date(result.origin,true)} · ${t('hours',{n:result.horizon})}`} action={<TurbineTabs turbines={data.turbines} value={turbine} onChange={setTurbine}/>}><PowerChart history={history} forecast={forecast}/><div className="legend"><span className="blue-dot">{t('actual')}</span><span className="teal-dot">{t('predicted')}</span></div></Card><div className="notice neutral"><Activity size={19}/>{current?.evaluation?.matched?t('evaluated',{matched:current.evaluation.matched,total:current.evaluation.total,mae:num((current.evaluation.mae||0)*100,2),rmse:num((current.evaluation.rmse||0)*100,2)}):t('factPending')}</div>{result?.weather&&current&&<WeatherSummary result={result} runID={current.id}/>}{result.quality.filter(q=>q.age_hours>0||result.warnings.some(w=>w.startsWith(`Турбина ${q.turbine_id}:`))).map(q=><div className="notice warning" key={q.turbine_id}>{result.weather?t('weatherStale',{n:q.turbine_id,model:model(result.forecasts.find(f=>f.turbine_id===q.turbine_id)?.model||'')}):t('staleTurbine',{n:q.turbine_id,date:date(q.last_complete_hour,true)})}</div>)}<Card title={t('values')} action={download}><div className="table-wrap"><table><thead><tr><th>{t('dateHour')}</th>{[...new Set(result.forecasts.map(f=>f.turbine_id))].map(id=><th key={id}>{data.turbines.find(x=>x.id===id)?.name||t('turbine',{n:id})}</th>)}<th>{t('source')}</th></tr></thead><tbody>{[...new Set(result.forecasts.map(f=>f.time))].slice(0,horizon).slice((forecastPage-1)*prefs.pageSize,forecastPage*prefs.pageSize).map(time=>{const rows=result.forecasts.filter(f=>f.time===time);return <tr key={time}><td>{date(time,true)}</td>{[...new Set(result.forecasts.map(f=>f.turbine_id))].map(id=><td key={id}><PowerCell value={rows.find(f=>f.turbine_id===id)?.prediction}/></td>)}<td>{[...new Set(rows.map(f=>model(f.model)))].join(' / ')}</td></tr>})}</tbody></table></div><Pager total={Math.min(horizon,result.horizon)} page={forecastPage} setPage={setForecastPage}/></Card><div className="subtle-note"><Info size={16}/>{t(data?.demo?'syntheticSource':(result?.weather||(!result&&data?.weather_settings.enabled))?'weatherForecastNote':'weatherNote')} {t('sourceTime')}</div></>:<Card><Empty>{t('firstRun')}</Empty></Card>}</>}
- {view==='import'&&<><StationPanel turbines={data.turbines} disabled={!!running||!!data.demo} onSaved={refresh}/><ImportPanel turbines={data.turbines} demo={!!data.demo} disabled={!!running||!!data.demo} onDone={async r=>{await refresh();setRevision(v=>v+1);notify('importResult',{added:r.added,duplicates:r.duplicates},r.run_id);if(r.run_id)known.current[r.run_id]='running'}}/><div className="section-heading"><h2>{t('dataStatus')}</h2></div><div className="turbine-grid">{data.turbines.map(x=><Card key={x.id} title={x.name} action={<Pill tone={x.coverage>=98?'teal':'amber'}>{pct(x.coverage/100)}</Pill>}><div className="data-status"><div className="coverage-track"><span style={{width:`${x.coverage}%`}}/></div><p>{num(x.rows)} · {t('measurements')} / {t('missing',{n:num(x.missing)})}</p><small>{date(x.first)} — {date(x.last)}</small></div></Card>)}</div><ImportHistory items={imports} turbines={data.turbines}/></>}
- {view==='quality'&&(result?<Quality result={result} turbine={turbine} setTurbine={setTurbine} turbines={data.turbines}/>:<Card><Empty>{t('firstRun')}</Empty></Card>)}
- {view==='agent'&&<RunHistory runs={data.runs} onOpen={openRun} onCancel={r=>void cancelRun(r)} cancelling={cancelling}/>}
- {view==='compare'&&<Compare runs={data.runs} turbines={data.turbines} turbine={turbine} setTurbine={setTurbine}/>}
- {view==='settings'&&<StationPanel turbines={data.turbines} disabled={!!running||!!data.demo} onSaved={refresh}/>}
- {view==='settings'&&<WeatherSettingsPanel demo={!!data.demo} hasData={!!count} disabled={!!running} onSaved={()=>void refresh()}/>}
- {view==='settings'&&<Settings demo={!!data.demo} disabled={!!running} notify={notify} onRestored={async()=>{setSelectedID('');setHistory([]);setOrigin('');known.current={};await refresh();setRevision(v=>v+1)}} onGuide={()=>setModal('welcome')}/>}
- {view==='notifications'&&<Notifications items={notifications} setItems={setNotifications} onOpen={n=>{if(n.runID){const run=data.runs.find(r=>r.id===n.runID);if(run?.status==='completed'){setSelectedID(run.id);go('forecast')}else go('agent')}setNotifications(old=>old.map(x=>x.id===n.id?{...x,read:true}:x))}}/>}
- </>}
- <footer className="page-footer"><span>SAMAL / {t('windEnergy')}</span><span>{t('sourceTime')}</span></footer></main></div>
- {toast&&<div className="toast" role="status"><Check size={19}/><span>{t(toast.key,toast.values)}</span><button className="text-button" onClick={()=>{go('notifications');setToast(null)}}>{t('details')}</button><button className="icon-button" aria-label={t('close')} onClick={()=>setToast(null)}><X size={16}/></button></div>}
- {modal&&<Modal title={t(modal==='welcome'?'welcome':'help')} onClose={closeModal}>{modal==='welcome'?<><p>{t('welcomeDesc')}</p><label className="welcome-language">{t('language')}<select value={prefs.language} onChange={e=>setPrefs({...prefs,language:e.target.value as typeof prefs.language})}><option value="ru">Русский</option><option value="kk">Қазақша</option><option value="en">English</option></select></label>{data?.demo?<p>{t('demoBanner')}</p>:(['welcome1','welcome2','welcome3'] as Key[]).map((key,i)=><div className="guide-step" key={key}><span>{i+1}</span><p>{t(key)}</p></div>)}<div className="notice neutral">{t(data?.demo?'syntheticSource':(result?.weather||(!result&&data?.weather_settings.enabled))?'weatherForecastNote':'weatherNote')}</div></>:<><p>{t('aboutText')}</p><h3>{t('quality')}</h3><p>{t('validationText')}</p><h3>{t('source')}</h3><p>{t('limitations')}</p><p>{t('unitsNote')}</p></>}<button className="button primary full" onClick={closeModal}>{t(modal==='welcome'?'start':'understood')}</button></Modal>}
- </div>
+import { NAV } from './navigation'
+import { useWorkspace } from './hooks/useWorkspace'
+import { OverviewPage } from './pages/OverviewPage'
+import { ForecastPage } from './pages/ForecastPage'
+import { Notifications } from './pages/NotificationsPage'
+export default function App() {
+  const workspace = useWorkspace()
+  const {
+    view,
+    turbine,
+    setTurbine,
+    setSelectedID,
+    data,
+    imports,
+    setHistory,
+    setOrigin,
+    busy,
+    error,
+    setError,
+    cancelling,
+    modal,
+    setModal,
+    mobile,
+    setMobile,
+    setRevision,
+    notifications,
+    setNotifications,
+    toast,
+    setToast,
+    known,
+    sidebar,
+    menuButton,
+    notify,
+    refresh,
+    running,
+    go,
+    closeModal,
+    current,
+    result,
+    count,
+    unread,
+    runForecast,
+    cancelRun,
+    openRun,
+  } = workspace
+  const { t, prefs, setPrefs, num, pct, date, model, event } = useI18n()
+  const runButton = (
+    <button
+      className="button primary"
+      disabled={busy || !!running || !count}
+      onClick={() => void runForecast()}
+    >
+      {busy || running ? <LoaderCircle size={17} className="spin" /> : <Play size={16} />}{' '}
+      {t(running ? 'calculating' : 'calculate')}
+    </button>
+  )
+  const download = current && (
+    <a className="button secondary" href={`/api/runs/${current.id}/export`}>
+      <Download size={16} />
+      {t('csv')}
+    </a>
+  )
+  return (
+    <div className="app-shell">
+      <a className="skip-link" href="#main">
+        {t('skip')}
+      </a>
+      {mobile && <div className="nav-scrim" onClick={() => setMobile(false)} />}
+      <aside
+        ref={sidebar}
+        className={`sidebar ${mobile ? 'open' : ''}`}
+        aria-label={t('workspace')}
+      >
+        <a className="brand" href="#main" onClick={() => go('overview')}>
+          <span className="brand-mark">
+            <Wind size={27} />
+          </span>
+          <span>
+            SAMAL<small>{t('windEnergy')}</small>
+          </span>
+        </a>
+        <div className="workspace">
+          <span className="workspace-icon">
+            <Zap size={18} />
+          </span>
+          <div>
+            {t('station')}
+            <small>{t('turbineCount', { n: data?.turbines.length || 0 })}</small>
+          </div>
+        </div>
+        <p className="nav-label">{t('workspace')}</p>
+        <nav>
+          {NAV.map((n) => (
+            <button
+              key={n.id}
+              className={`nav-item ${view === n.id ? 'active' : ''}`}
+              aria-current={view === n.id ? 'page' : undefined}
+              onClick={() => go(n.id)}
+            >
+              <n.icon size={19} />
+              <span>{t(n.id)}</span>
+              {n.id === 'agent' && running && <span className="nav-progress" />}
+            </button>
+          ))}
+        </nav>
+        <div className="sidebar-bottom">
+          <div className="local-note">
+            <Database size={17} />
+            <span>{t('localData')}</span>
+          </div>
+          <button
+            className="nav-item"
+            onClick={() => {
+              setMobile(false)
+              setModal('help')
+            }}
+          >
+            <CircleHelp size={18} />
+            {t('help')}
+          </button>
+          <div className="sidebar-footer">
+            <span className="avatar">S</span>
+            <b>
+              SAMAL <small>WORKSPACE</small>
+            </b>
+            <span className="version">v2.0</span>
+          </div>
+        </div>
+      </aside>
+      <div className="main-shell" inert={mobile || undefined}>
+        <header className="topbar">
+          <div className="breadcrumbs">
+            <button
+              ref={menuButton}
+              className="icon-button mobile-menu"
+              aria-label={t('menu')}
+              aria-expanded={mobile}
+              onClick={() => setMobile(true)}
+            >
+              <Menu size={21} />
+            </button>
+            <span>SAMAL</span>
+            <ChevronRight size={14} />
+            <b>{t(view)}</b>
+          </div>
+          <div className="topbar-right">
+            <span className="local-badge">
+              <i />
+              {t('local')}
+            </span>
+            <select
+              className="language-select"
+              aria-label={t('language')}
+              value={prefs.language}
+              onChange={(e) =>
+                setPrefs({ ...prefs, language: e.target.value as typeof prefs.language })
+              }
+            >
+              <option value="kk">ҚАЗ</option>
+              <option value="ru">РУС</option>
+              <option value="en">ENG</option>
+            </select>
+            <button
+              className="icon-button"
+              aria-label={t('theme')}
+              title={t('theme')}
+              onClick={() =>
+                setPrefs({
+                  ...prefs,
+                  theme: document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark',
+                })
+              }
+            >
+              {prefs.theme === 'dark' ? <Sun size={19} /> : <Moon size={19} />}
+            </button>
+            <button
+              className="icon-button notification-button"
+              aria-label={`${t('notifications')}${unread ? `: ${unread}` : ''}`}
+              onClick={() => go('notifications')}
+            >
+              <Bell size={19} />
+              {unread > 0 && <span>{unread > 99 ? '99+' : unread}</span>}
+            </button>
+          </div>
+        </header>
+        <main id="main" tabIndex={-1}>
+          {(data?.demo || result?.data_source === 'synthetic') && (
+            <div className="notice warning" role="status">
+              <Info size={19} />
+              {t('demoBanner')}
+            </div>
+          )}
+          <div className="page-heading">
+            <div>
+              <div className="eyebrow">SAMAL / {t('windEnergy')}</div>
+              <h1>{t(view)}</h1>
+              <p>{t(`${view}Desc` as Key)}</p>
+            </div>
+            <div className="heading-actions">
+              {view === 'overview' ? (
+                <>
+                  <button className="button secondary" onClick={() => go('import')}>
+                    <Upload size={16} />
+                    {t('upload')}
+                  </button>
+                  {runButton}
+                </>
+              ) : view === 'forecast' ? (
+                <>
+                  {download}
+                  {runButton}
+                </>
+              ) : view === 'import' ? (
+                <a className="button secondary" href="/api/template">
+                  <Download size={16} />
+                  {t('template')}
+                </a>
+              ) : view === 'agent' ? (
+                runButton
+              ) : null}
+            </div>
+          </div>
+          <ErrorNotice
+            message={error}
+            onClose={() => setError('')}
+            retry={() => {
+              setRevision((v) => v + 1)
+              void refresh()
+                .then(() => setError(''))
+                .catch((e) => setError(e.message))
+            }}
+          />
+          {running && (
+            <div className="running-banner" role="status">
+              <LoaderCircle size={23} className="spin" />
+              <div>
+                <b>{t('calculating')}</b>
+                <span>{event(running.step)}</span>
+              </div>
+              <button className="text-button" onClick={() => go('agent')}>
+                {t('agent')}
+                <ArrowUpRight size={15} />
+              </button>
+              <button
+                className="button secondary compact"
+                disabled={!!cancelling}
+                onClick={() => void cancelRun(running)}
+              >
+                {t(cancelling ? 'cancelling' : 'cancel')}
+              </button>
+            </div>
+          )}
+          {!data ? (
+            <Loading />
+          ) : (
+            <>
+              {view === 'overview' && <OverviewPage workspace={workspace} />}
+              {result &&
+                ['overview', 'forecast'].includes(view) &&
+                result.forecasts.every((f) => !f.model.startsWith('catboost')) && (
+                  <div className="notice warning">
+                    <Info size={17} />
+                    {t('baselineForecast', {
+                      model: [...new Set(result.forecasts.map((f) => model(f.model)))].join(' / '),
+                    })}
+                  </div>
+                )}
+              {view === 'forecast' && <ForecastPage workspace={workspace} />}
+              {view === 'import' && (
+                <>
+                  <StationPanel
+                    turbines={data.turbines}
+                    disabled={!!running || !!data.demo}
+                    onSaved={refresh}
+                  />
+                  <ImportPanel
+                    turbines={data.turbines}
+                    demo={!!data.demo}
+                    disabled={!!running || !!data.demo}
+                    onDone={async (r) => {
+                      await refresh()
+                      setRevision((v) => v + 1)
+                      notify('importResult', { added: r.added, duplicates: r.duplicates }, r.run_id)
+                      if (r.run_id) known.current[r.run_id] = 'running'
+                    }}
+                  />
+                  <div className="section-heading">
+                    <h2>{t('dataStatus')}</h2>
+                  </div>
+                  <div className="turbine-grid">
+                    {data.turbines.map((x) => (
+                      <Card
+                        key={x.id}
+                        title={x.name}
+                        action={
+                          <Pill tone={x.coverage >= 98 ? 'teal' : 'amber'}>
+                            {pct(x.coverage / 100)}
+                          </Pill>
+                        }
+                      >
+                        <div className="data-status">
+                          <div className="coverage-track">
+                            <span style={{ width: `${x.coverage}%` }} />
+                          </div>
+                          <p>
+                            {num(x.rows)} · {t('measurements')} /{' '}
+                            {t('missing', { n: num(x.missing) })}
+                          </p>
+                          <small>
+                            {date(x.first)} — {date(x.last)}
+                          </small>
+                        </div>
+                      </Card>
+                    ))}
+                  </div>
+                  <ImportHistory items={imports} turbines={data.turbines} />
+                </>
+              )}
+              {view === 'quality' &&
+                (result ? (
+                  <Quality
+                    result={result}
+                    turbine={turbine}
+                    setTurbine={setTurbine}
+                    turbines={data.turbines}
+                  />
+                ) : (
+                  <Card>
+                    <Empty>{t('firstRun')}</Empty>
+                  </Card>
+                ))}
+              {view === 'agent' && (
+                <RunHistory
+                  runs={data.runs}
+                  onOpen={openRun}
+                  onCancel={(r) => void cancelRun(r)}
+                  cancelling={cancelling}
+                />
+              )}
+              {view === 'compare' && (
+                <Compare
+                  runs={data.runs}
+                  turbines={data.turbines}
+                  turbine={turbine}
+                  setTurbine={setTurbine}
+                />
+              )}
+              {view === 'settings' && (
+                <StationPanel
+                  turbines={data.turbines}
+                  disabled={!!running || !!data.demo}
+                  onSaved={refresh}
+                />
+              )}
+              {view === 'settings' && (
+                <WeatherSettingsPanel
+                  demo={!!data.demo}
+                  hasData={!!count}
+                  disabled={!!running}
+                  onSaved={() => void refresh()}
+                />
+              )}
+              {view === 'settings' && (
+                <Settings
+                  demo={!!data.demo}
+                  disabled={!!running}
+                  notify={notify}
+                  onRestored={async () => {
+                    setSelectedID('')
+                    setHistory([])
+                    setOrigin('')
+                    known.current = {}
+                    await refresh()
+                    setRevision((v) => v + 1)
+                  }}
+                  onGuide={() => setModal('welcome')}
+                />
+              )}
+              {view === 'notifications' && (
+                <Notifications
+                  items={notifications}
+                  setItems={setNotifications}
+                  onOpen={(n) => {
+                    if (n.runID) {
+                      const run = data.runs.find((r) => r.id === n.runID)
+                      if (run?.status === 'completed') {
+                        setSelectedID(run.id)
+                        go('forecast')
+                      } else go('agent')
+                    }
+                    setNotifications((old) =>
+                      old.map((x) => (x.id === n.id ? { ...x, read: true } : x)),
+                    )
+                  }}
+                />
+              )}
+            </>
+          )}
+          <footer className="page-footer">
+            <span>SAMAL / {t('windEnergy')}</span>
+            <span>{t('sourceTime')}</span>
+          </footer>
+        </main>
+      </div>
+      {toast && (
+        <div className="toast" role="status">
+          <Check size={19} />
+          <span>{t(toast.key, toast.values)}</span>
+          <button
+            className="text-button"
+            onClick={() => {
+              go('notifications')
+              setToast(null)
+            }}
+          >
+            {t('details')}
+          </button>
+          <button className="icon-button" aria-label={t('close')} onClick={() => setToast(null)}>
+            <X size={16} />
+          </button>
+        </div>
+      )}
+      {modal && (
+        <Modal title={t(modal === 'welcome' ? 'welcome' : 'help')} onClose={closeModal}>
+          {modal === 'welcome' ? (
+            <>
+              <p>{t('welcomeDesc')}</p>
+              <label className="welcome-language">
+                {t('language')}
+                <select
+                  value={prefs.language}
+                  onChange={(e) =>
+                    setPrefs({ ...prefs, language: e.target.value as typeof prefs.language })
+                  }
+                >
+                  <option value="ru">Русский</option>
+                  <option value="kk">Қазақша</option>
+                  <option value="en">English</option>
+                </select>
+              </label>
+              {data?.demo ? (
+                <p>{t('demoBanner')}</p>
+              ) : (
+                (['welcome1', 'welcome2', 'welcome3'] as Key[]).map((key, i) => (
+                  <div className="guide-step" key={key}>
+                    <span>{i + 1}</span>
+                    <p>{t(key)}</p>
+                  </div>
+                ))
+              )}
+              <div className="notice neutral">
+                {t(
+                  data?.demo
+                    ? 'syntheticSource'
+                    : result?.weather || (!result && data?.weather_settings.enabled)
+                      ? 'weatherForecastNote'
+                      : 'weatherNote',
+                )}
+              </div>
+            </>
+          ) : (
+            <>
+              <p>{t('aboutText')}</p>
+              <h3>{t('quality')}</h3>
+              <p>{t('validationText')}</p>
+              <h3>{t('source')}</h3>
+              <p>{t('limitations')}</p>
+              <p>{t('unitsNote')}</p>
+            </>
+          )}
+          <button className="button primary full" onClick={closeModal}>
+            {t(modal === 'welcome' ? 'start' : 'understood')}
+          </button>
+        </Modal>
+      )}
+    </div>
+  )
 }
-
-function PowerCell({value}:{value?:number}){const {pct}=useI18n();return <div className="power-cell"><span>{pct(value)}</span><div><i style={{width:`${(value||0)*100}%`}}/></div></div>}
-function TurbineCard({turbine:x,onOpen}:{turbine:Turbine;onOpen:()=>void}){const {t,pct,num,date}=useI18n();return <Card className="turbine-card"><div className="turbine-card-top"><div className="turbine-identity"><span className="turbine-symbol"><Wind size={25}/></span><div><h3>{x.name}</h3><small>{num(x.latitude,4)}°, {num(x.longitude,4)}°</small></div></div><button className="icon-button" onClick={onOpen} aria-label={`${t('forecast')} · ${x.name}`}><ArrowUpRight size={19}/></button></div><div className="turbine-readings"><div><span><Zap size={14}/>{t('power')}</span><b>{x.rows?pct(x.power):'—'}</b></div><div><span><Wind size={14}/>{t('wind')}</span><b>{x.rows?num(x.wind,1):'—'}<small>{t('ms')}</small></b></div><div><span><Thermometer size={14}/>{t('temperature')}</span><b>{x.rows?num(x.temperature,1):'—'}<small>°C</small></b></div></div><div className="turbine-card-footer"><span>{date(x.last,true)}</span><span>{num(x.rows)} · {t('rows')}</span></div></Card>}
-function Notifications({items,setItems,onOpen}:{items:Notification[];setItems:(v:Notification[])=>void;onOpen:(n:Notification)=>void}){const {t,created,error}=useI18n();const list=useList(items,n=>`${t(n.key,n.values)} ${n.detail||''}`,n=>n.at,(n,k)=>k==='all'||(k==='read'?n.read:!n.read));return <Card title={t('notifications')} sub={t('notificationHint')} action={<div className="button-row"><button className="button secondary compact" onClick={()=>setItems(items.map(n=>({...n,read:true})))}>{t('markRead')}</button><button className="button secondary compact" disabled={!items.length} onClick={()=>setItems([])}>{t('clearNotifications')}</button></div>}><Filters state={list} options={[{value:'unread',label:t('unread')},{value:'read',label:t('read')}]} dates={false}/>{list.visible.map(n=><div className={`notification-row ${n.read?'':'unread'}`} key={n.id}><Bell size={19}/><div><b>{t(n.key,n.values)}</b><small>{created(n.at)}</small>{n.detail&&<details><summary>{error(n.detail)}</summary><code>{n.detail}</code></details>}</div><button className="text-button" onClick={()=>onOpen(n)}>{t(n.runID?'open':n.read?'read':'markOne')}</button></div>)}{!list.total&&<Empty>{t('noMatches')}</Empty>}<Pager total={list.total} page={list.page} setPage={list.setPage}/></Card>}
