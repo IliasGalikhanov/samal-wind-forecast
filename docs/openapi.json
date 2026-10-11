@@ -1,0 +1,1542 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "SAMAL local API",
+    "version": "1.0.0",
+    "description": "Local single-user API without authentication. Station-local timestamps have no offset. Power is normalised to 0..1. See api.md for workflow and failure semantics."
+  },
+  "servers": [
+    {
+      "url": "http://127.0.0.1:8080"
+    }
+  ],
+  "paths": {
+    "/api/health": {
+      "get": {
+        "operationId": "health",
+        "summary": "Liveness",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error; see api.md for status and recovery guidance.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/overview": {
+      "get": {
+        "operationId": "overview",
+        "summary": "Station and latest completed result",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Overview"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error; see api.md for status and recovery guidance.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/turbines": {
+      "post": {
+        "operationId": "saveTurbine",
+        "summary": "Create/update turbine; 403 in demo; 409 if busy or changing locked fields",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Turbine"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error; see api.md for status and recovery guidance.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TurbineInput"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/weather/settings": {
+      "get": {
+        "operationId": "weatherSettings",
+        "summary": "Read weather configuration",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WeatherSettings"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error; see api.md for status and recovery guidance.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "saveWeatherSettings",
+        "summary": "Update weather configuration; timezone locks after first import",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WeatherSettings"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error; see api.md for status and recovery guidance.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WeatherSettings"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/history": {
+      "get": {
+        "operationId": "history",
+        "summary": "Hourly observations with nulls for incomplete hours",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Hour"
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error; see api.md for status and recovery guidance.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "turbine",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "days",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 7
+            }
+          }
+        ]
+      }
+    },
+    "/api/imports": {
+      "get": {
+        "operationId": "imports",
+        "summary": "Import receipts",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ImportReceipt"
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error; see api.md for status and recovery guidance.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "importCSV",
+        "summary": "Atomic import; duplicate rows skipped; demo forbidden",
+        "responses": {
+          "201": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImportReceipt"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error; see api.md for status and recovery guidance.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "format": "binary"
+                  },
+                  "turbine_id": {
+                    "type": "integer"
+                  },
+                  "options": {
+                    "type": "string",
+                    "description": "JSON-encoded ImportOptions"
+                  },
+                  "auto_run": {
+                    "type": "string",
+                    "enum": [
+                      "true",
+                      "false"
+                    ]
+                  },
+                  "horizon": {
+                    "type": "integer",
+                    "enum": [
+                      24,
+                      48
+                    ]
+                  }
+                },
+                "required": [
+                  "file",
+                  "turbine_id"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/imports/columns": {
+      "post": {
+        "operationId": "importColumns",
+        "summary": "Read CSV headers and suggest mapping",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "columns": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "suggested": {
+                      "$ref": "#/components/schemas/ImportOptions"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error; see api.md for status and recovery guidance.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "format": "binary"
+                  },
+                  "options": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "file"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/imports/preview": {
+      "post": {
+        "operationId": "previewImport",
+        "summary": "Validate without saving; 50 MiB request limit",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Preview"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error; see api.md for status and recovery guidance.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "format": "binary"
+                  },
+                  "turbine_id": {
+                    "type": "integer"
+                  },
+                  "options": {
+                    "type": "string",
+                    "description": "JSON-encoded ImportOptions"
+                  },
+                  "auto_run": {
+                    "type": "string",
+                    "enum": [
+                      "true",
+                      "false"
+                    ]
+                  },
+                  "horizon": {
+                    "type": "integer",
+                    "enum": [
+                      24,
+                      48
+                    ]
+                  }
+                },
+                "required": [
+                  "file",
+                  "turbine_id"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/template": {
+      "get": {
+        "operationId": "template",
+        "summary": "CSV template",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "text/csv": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error; see api.md for status and recovery guidance.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/runs": {
+      "get": {
+        "operationId": "runs",
+        "summary": "Run history",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Run"
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error; see api.md for status and recovery guidance.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "startRun",
+        "summary": "Start forecast; 202 means accepted, not completed",
+        "responses": {
+          "202": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Run"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error; see api.md for status and recovery guidance.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RunRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/runs/{id}": {
+      "get": {
+        "operationId": "run",
+        "summary": "Run details, result and events",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Run"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error; see api.md for status and recovery guidance.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/runs/{id}/cancel": {
+      "post": {
+        "operationId": "cancelRun",
+        "summary": "Cancel active worker; finished run returns 409",
+        "responses": {
+          "202": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error; see api.md for status and recovery guidance.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/runs/{id}/export": {
+      "get": {
+        "operationId": "exportRun",
+        "summary": "Completed forecast CSV including data_source",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "text/csv": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error; see api.md for status and recovery guidance.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/runs/{id}/artifacts/{artifact}": {
+      "get": {
+        "operationId": "runArtifact",
+        "summary": "Weather manifest or replay CSV",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error; see api.md for status and recovery guidance.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "artifact",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "weather.json",
+                "weather-forecast.json",
+                "replay.csv"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    "/api/backup": {
+      "get": {
+        "operationId": "backup",
+        "summary": "Download private data ZIP; busy app returns 409",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/zip": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error; see api.md for status and recovery guidance.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/backup/status": {
+      "get": {
+        "operationId": "backupStatus",
+        "summary": "Recovery archive availability",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "recovery_available": {
+                      "type": "boolean"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error; see api.md for status and recovery guidance.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/backup/recovery": {
+      "get": {
+        "operationId": "recovery",
+        "summary": "Download backup saved before the last restore",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/zip": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error; see api.md for status and recovery guidance.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/backup/preview": {
+      "post": {
+        "operationId": "previewBackup",
+        "summary": "Validate archive without replacing data",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BackupInfo"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error; see api.md for status and recovery guidance.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "format": "binary"
+                  }
+                },
+                "required": [
+                  "file"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/backup/restore": {
+      "post": {
+        "operationId": "restoreBackup",
+        "summary": "Replace data; saves recovery.zip; forbidden in demo",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BackupInfo"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error; see api.md for status and recovery guidance.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "format": "binary"
+                  },
+                  "confirm": {
+                    "type": "string",
+                    "const": "restore"
+                  }
+                },
+                "required": [
+                  "file",
+                  "confirm"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/exports": {
+      "post": {
+        "operationId": "prepareExport",
+        "summary": "Create a download valid for 10 minutes; 128 KiB limit",
+        "responses": {
+          "201": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "url": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error; see api.md for status and recovery guidance.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "enum": [
+                      "samal-preferences.json",
+                      "samal-comparison.csv"
+                    ]
+                  },
+                  "content": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "name",
+                  "content"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/exports/{id}": {
+      "get": {
+        "operationId": "exportFile",
+        "summary": "Download browser-generated file; 404 if expired",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error; see api.md for status and recovery guidance.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Error": {
+        "type": "object",
+        "required": [
+          "error"
+        ],
+        "properties": {
+          "error": {
+            "type": "string"
+          }
+        }
+      },
+      "TurbineInput": {
+        "type": "object",
+        "required": [
+          "name",
+          "sample_minutes"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "description": "Trimmed UTF-8 name; server limit is 200 bytes (UI limits input to 100 characters)."
+          },
+          "latitude": {
+            "type": "number",
+            "minimum": -90,
+            "maximum": 90,
+            "default": 0
+          },
+          "longitude": {
+            "type": "number",
+            "minimum": -180,
+            "maximum": 180,
+            "default": 0
+          },
+          "sample_minutes": {
+            "type": "integer",
+            "enum": [
+              5,
+              10,
+              15,
+              20,
+              30,
+              60
+            ]
+          },
+          "rated_kw": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1000000
+          }
+        }
+      },
+      "WeatherSettings": {
+        "type": "object",
+        "required": [
+          "enabled",
+          "timezone",
+          "origin_mode",
+          "auto_refresh"
+        ],
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "timezone": {
+            "type": "string",
+            "example": "Asia/Almaty"
+          },
+          "origin_mode": {
+            "type": "string",
+            "enum": [
+              "live",
+              "dataset"
+            ]
+          },
+          "auto_refresh": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ImportOptions": {
+        "type": "object",
+        "properties": {
+          "delimiter": {
+            "type": "string",
+            "enum": [
+              ",",
+              ";",
+              "\t"
+            ]
+          },
+          "time": {
+            "type": "string"
+          },
+          "wind": {
+            "type": "string"
+          },
+          "power": {
+            "type": "string"
+          },
+          "temperature": {
+            "type": "string"
+          },
+          "power_unit": {
+            "type": "string",
+            "enum": [
+              "normalized",
+              "percent",
+              "kw",
+              "mw"
+            ]
+          }
+        }
+      },
+      "RunRequest": {
+        "type": "object",
+        "required": [
+          "horizon"
+        ],
+        "properties": {
+          "mode": {
+            "type": "string",
+            "enum": [
+              "live",
+              "dataset"
+            ]
+          },
+          "horizon": {
+            "type": "integer",
+            "enum": [
+              24,
+              48
+            ]
+          },
+          "origin": {
+            "type": "string",
+            "example": "2026-01-01T00:00"
+          },
+          "replay_days": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 31
+          },
+          "force_retrain": {
+            "type": "boolean"
+          }
+        }
+      },
+      "Turbine": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "latitude": {
+            "type": "number",
+            "minimum": -90,
+            "maximum": 90
+          },
+          "longitude": {
+            "type": "number",
+            "minimum": -180,
+            "maximum": 180
+          },
+          "sample_minutes": {
+            "type": "integer",
+            "enum": [
+              5,
+              10,
+              15,
+              20,
+              30,
+              60
+            ]
+          },
+          "rated_kw": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1000000
+          },
+          "rows": {
+            "type": "integer"
+          },
+          "first": {
+            "type": "string"
+          },
+          "last": {
+            "type": "string"
+          },
+          "missing": {
+            "type": "integer"
+          },
+          "coverage": {
+            "type": "number"
+          },
+          "power": {
+            "type": "number"
+          },
+          "wind": {
+            "type": "number"
+          },
+          "temperature": {
+            "type": "number"
+          }
+        }
+      },
+      "Metric": {
+        "type": "object",
+        "properties": {
+          "mae": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "rmse": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "n": {
+            "type": "integer"
+          }
+        }
+      },
+      "Forecast": {
+        "type": "object",
+        "properties": {
+          "time": {
+            "type": "string"
+          },
+          "turbine_id": {
+            "type": "integer"
+          },
+          "prediction": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "model": {
+            "type": "string"
+          }
+        }
+      },
+      "Result": {
+        "type": "object",
+        "properties": {
+          "data_source": {
+            "type": "string",
+            "enum": [
+              "synthetic",
+              "user_import"
+            ]
+          },
+          "origin": {
+            "type": "string"
+          },
+          "horizon": {
+            "type": "integer"
+          },
+          "forecasts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Forecast"
+            }
+          },
+          "selected_model": {
+            "type": "string"
+          },
+          "training": {
+            "type": "object"
+          },
+          "validation": {
+            "type": "object"
+          },
+          "backtest": {
+            "type": "object"
+          },
+          "weather": {
+            "type": "object"
+          }
+        }
+      },
+      "Run": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "running",
+              "completed",
+              "failed",
+              "cancelled"
+            ]
+          },
+          "created": {
+            "type": "string"
+          },
+          "trigger": {
+            "type": "string"
+          },
+          "horizon": {
+            "type": "integer"
+          },
+          "origin": {
+            "type": "string"
+          },
+          "step": {
+            "type": "string"
+          },
+          "error": {
+            "type": "string"
+          },
+          "request": {
+            "$ref": "#/components/schemas/RunRequest"
+          },
+          "result": {
+            "$ref": "#/components/schemas/Result"
+          },
+          "events": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "at": {
+                  "type": "string"
+                },
+                "message": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "ImportReceipt": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "turbine_id": {
+            "type": "integer"
+          },
+          "name": {
+            "type": "string"
+          },
+          "created": {
+            "type": "string"
+          },
+          "rows": {
+            "type": "integer"
+          },
+          "added": {
+            "type": "integer"
+          },
+          "duplicates": {
+            "type": "integer"
+          },
+          "sha256": {
+            "type": "string"
+          },
+          "run_id": {
+            "type": "string"
+          }
+        }
+      },
+      "Preview": {
+        "type": "object",
+        "properties": {
+          "rows": {
+            "type": "integer"
+          },
+          "added": {
+            "type": "integer"
+          },
+          "duplicates": {
+            "type": "integer"
+          },
+          "conflicts": {
+            "type": "integer"
+          },
+          "first": {
+            "type": "string"
+          },
+          "last": {
+            "type": "string"
+          },
+          "samples": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "time": {
+                  "type": "string"
+                },
+                "wind": {
+                  "type": "number"
+                },
+                "power": {
+                  "type": "number"
+                },
+                "temperature": {
+                  "type": "number"
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "new",
+                    "duplicate",
+                    "conflict"
+                  ]
+                }
+              }
+            }
+          },
+          "conflict_times": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "BackupInfo": {
+        "type": "object",
+        "properties": {
+          "format": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer"
+          },
+          "created": {
+            "type": "string"
+          },
+          "observations": {
+            "type": "integer"
+          },
+          "imports": {
+            "type": "integer"
+          },
+          "runs": {
+            "type": "integer"
+          }
+        }
+      },
+      "Hour": {
+        "type": "object",
+        "properties": {
+          "time": {
+            "type": "string"
+          },
+          "power": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "wind": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "temperature": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "samples": {
+            "type": "integer"
+          }
+        }
+      },
+      "Overview": {
+        "type": "object",
+        "properties": {
+          "demo": {
+            "type": "boolean"
+          },
+          "turbines": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Turbine"
+            }
+          },
+          "runs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Run"
+            }
+          },
+          "latest_run": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Run"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "timezone": {
+            "type": "string"
+          },
+          "weather_settings": {
+            "$ref": "#/components/schemas/WeatherSettings"
+          }
+        }
+      }
+    }
+  }
+}
